@@ -1,0 +1,11 @@
+nombre,equipo,tipo,posicion,edad,minutos,duelo_defensivo,duelo_aereo,velocidad_defensiva,salida_balon,presion,toma_decision,fiabilidad_fisica,abp,encaje_manual,perfil
+Amin,No Name FC,propio,DFC,24,1450,8.0,8.5,6.2,5.8,6.7,6.8,8.0,8.7,8.0,"Central fuerte en área, dominante en duelo aéreo y útil en ABP."
+Asiel,No Name FC,propio,DFC,25,1550,8.2,8.1,6.5,6.0,6.4,7.0,8.2,8.3,8.1,"Central fiable, competitivo y con buen rendimiento en defensa de área."
+Samate,No Name FC,propio,DC,27,1300,5.5,8.3,6.0,5.4,6.1,6.0,7.0,8.8,7.6,"Delantero fijador, amenaza aérea y referencia para juego directo."
+Viti,No Name FC,propio,DC,23,700,6.2,5.0,7.2,5.8,7.8,5.8,7.5,5.5,6.8,"Delantero intenso, útil para presión y rupturas, menos dominante como referencia."
+Medu,No Name FC,propio,LD,26,1200,7.4,6.0,7.0,6.2,7.0,6.3,5.8,5.5,7.2,"Lateral competitivo, pero condicionado por molestias físicas."
+Lateral A,Rival 1,recambio,LD,22,1600,7.8,6.3,8.0,6.8,7.6,6.7,8.2,5.8,8.0,"Lateral de recorrido, agresivo hacia delante y capaz de defender campo abierto."
+Lateral B,Rival 2,recambio,LD,29,1400,8.1,6.7,6.8,6.4,6.9,7.4,8.5,6.2,7.6,"Lateral más conservador, fiable defensivamente y con buena lectura."
+Central C,Rival 3,recambio,DFC,21,1100,7.5,7.7,7.3,6.9,6.8,6.9,8.0,7.4,8.0,"Central joven, más móvil, interesante si el equipo quiere defender más lejos del área."
+Delantero D,Rival 4,recambio,DC,24,1500,5.9,7.8,7.0,6.0,7.2,6.8,8.3,7.9,8.1,"Delantero mixto: puede fijar, correr y participar en presión."
+Mediocentro E,Rival 5,recambio,MC,26,1700,7.2,6.1,6.4,8.1,7.1,8.0,8.2,6.0,8.4,"Mediocentro con criterio, buen primer pase y lectura para organizar."
