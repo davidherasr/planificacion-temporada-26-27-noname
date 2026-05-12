@@ -1,823 +1,500 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-
-# =========================================================
-# CONFIGURACIÓN
-# =========================================================
+from pathlib import Path
 
 st.set_page_config(
     page_title="Heras MatchLab | Noname",
     page_icon="⚽",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# =========================================================
-# CSS - modo claro por defecto, con opción oscura
-# =========================================================
+JUGADORES_CSV = "jugadores_noname.csv"
+OJEADOS_CSV = "jugadores_ojeados_noname.csv"
 
-def aplicar_estilo(modo_visual: str):
-    if modo_visual == "Oscuro":
-        st.markdown("""
-        <style>
-        .stApp {background:#0b1118;color:#e5e7eb;}
-        section[data-testid="stSidebar"] {background:#101923;border-right:1px solid #263241;}
-        h1,h2,h3,h4 {color:#f8fafc !important;}
-        [data-testid="stMetric"] {background:#111827;border:1px solid #263241;padding:14px;border-radius:14px;}
-        .card {background:#111827;border:1px solid #263241;border-radius:14px;padding:14px;margin-bottom:10px;}
-        .soft {color:#9ca3af;}
-        .tag {display:inline-block;background:#1e293b;color:#dbeafe;border:1px solid #334155;border-radius:999px;padding:4px 10px;margin:2px;font-size:12px;}
-        .danger {background:#3b1111;border:1px solid #7f1d1d;}
-        .ok {background:#0f2f22;border:1px solid #166534;}
-        .warn {background:#312811;border:1px solid #854d0e;}
-        </style>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <style>
-        .stApp {background:#f7f9fc;color:#111827;}
-        section[data-testid="stSidebar"] {background:#ffffff;border-right:1px solid #e5e7eb;}
-        h1,h2,h3,h4 {color:#0f172a !important;}
-        [data-testid="stMetric"] {background:#ffffff;border:1px solid #e5e7eb;padding:14px;border-radius:14px;box-shadow:0 1px 3px rgba(15,23,42,0.06);}
-        .card {background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(15,23,42,0.06);}
-        .soft {color:#64748b;}
-        .tag {display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:999px;padding:4px 10px;margin:2px;font-size:12px;}
-        .danger {background:#fff1f2;border:1px solid #fecdd3;}
-        .ok {background:#ecfdf5;border:1px solid #bbf7d0;}
-        .warn {background:#fffbeb;border:1px solid #fde68a;}
-        </style>
-        """, unsafe_allow_html=True)
-
-# =========================================================
-# MÉTRICAS, MODELOS Y FORMACIONES
-# =========================================================
-
-METRICAS = [
-    "duelo_defensivo", "duelo_aereo", "velocidad_defensiva", "salida_balon",
-    "presion", "decision", "fiabilidad_fisica", "abp", "potencial",
-    "asociacion", "ruptura", "centro_lateral"
+ENCAJES = [
+    "encaje_modelo_general",
+    "encaje_4231_442",
+    "encaje_343",
+    "encaje_presion_alta",
+    "encaje_bloque_medio",
+    "encaje_salida_balon",
+    "encaje_juego_directo_segunda_jugada",
+    "encaje_transicion_ofensiva",
+    "encaje_transicion_defensiva",
+    "encaje_rest_defence",
+    "encaje_abp",
 ]
 
-NOMBRES_METRICAS = {
-    "duelo_defensivo": "Duelo defensivo",
-    "duelo_aereo": "Juego aéreo",
-    "velocidad_defensiva": "Velocidad defensiva",
-    "salida_balon": "Salida de balón",
-    "presion": "Presión",
-    "decision": "Toma de decisión",
-    "fiabilidad_fisica": "Fiabilidad física",
-    "abp": "ABP",
-    "potencial": "Potencial",
-    "asociacion": "Asociación",
-    "ruptura": "Ruptura",
-    "centro_lateral": "Centro lateral"
+NOMBRES_ENCAJE = {
+    "encaje_modelo_general": "Modelo general",
+    "encaje_4231_442": "4-2-3-1 / 4-4-2",
+    "encaje_343": "3-4-3",
+    "encaje_presion_alta": "Presión alta",
+    "encaje_bloque_medio": "Bloque medio",
+    "encaje_salida_balon": "Salida de balón",
+    "encaje_juego_directo_segunda_jugada": "Juego directo / segunda jugada",
+    "encaje_transicion_ofensiva": "Transición ofensiva",
+    "encaje_transicion_defensiva": "Transición defensiva",
+    "encaje_rest_defence": "Rest-defence",
+    "encaje_abp": "ABP",
 }
+
+COLUMNAS_DECISION = [
+    "id_jugador",
+    "nombre",
+    "equipo",
+    "tipo",
+    "posicion_principal",
+    "decision_deportiva",
+    "prioridad_renovacion",
+    "riesgo_continuidad",
+    "rol_proxima_temporada",
+    "conclusion",
+]
 
 MODELO_NONAME = {
-    "sistema_nominal": "4-2-3-1",
-    "estructura_real": "4-4-2 con mediapunta como segundo punta libre",
-    "sistema_alternativo": "3-4-3 con carriles altos y cuadrado interior",
-    "identidad": "Equipo con organización posicional de base, vertical cuando roba o encuentra ventaja.",
-    "salida": "Salida de cuatro del 4-2-3-1. Laterales asimétricos: uno largo y otro corto/interior a altura de centrales.",
-    "amplitud": "Dos extremos dan amplitud. Si uno se mete dentro, el otro debe permanecer abierto.",
-    "presion": "Bloque alto. La presión la inician delantero y mediapunta.",
-    "orientacion": "Cerrar carril interior para forzar al rival a jugar por fuera.",
-    "transicion_ofensiva": "Rápida. Buscar mediapunta libre, delantero o espacio según contexto.",
-    "transicion_defensiva": "Presión tras pérdida. Si se supera, embudo interior y reorganización.",
-    "rest_defence": "3 defensas + 2 pivotes, o 3 defensas + 1 pivote según altura del segundo pivote.",
-    "area": "Ocupación de primer palo, punto de penalti, segundo palo y rechace."
-}
-
-PRESETS_MODELO = {
-    "Noname base: 4-2-3-1 / 4-4-2 presión alta": {
-        "duelo_defensivo": 8, "duelo_aereo": 7, "velocidad_defensiva": 8,
-        "salida_balon": 7, "presion": 10, "decision": 9, "fiabilidad_fisica": 8,
-        "abp": 7, "potencial": 7, "asociacion": 8, "ruptura": 8, "centro_lateral": 8
-    },
-    "Noname alternativo: 3-4-3 cuadrado interior": {
-        "duelo_defensivo": 7, "duelo_aereo": 7, "velocidad_defensiva": 8,
-        "salida_balon": 8, "presion": 9, "decision": 9, "fiabilidad_fisica": 8,
-        "abp": 7, "potencial": 7, "asociacion": 9, "ruptura": 7, "centro_lateral": 9
-    },
-    "Bloque medio + segunda jugada": {
-        "duelo_defensivo": 9, "duelo_aereo": 10, "velocidad_defensiva": 6,
-        "salida_balon": 5, "presion": 7, "decision": 7, "fiabilidad_fisica": 8,
-        "abp": 10, "potencial": 6, "asociacion": 6, "ruptura": 6, "centro_lateral": 8
-    },
-    "Dominante con balón": {
-        "duelo_defensivo": 6, "duelo_aereo": 5, "velocidad_defensiva": 7,
-        "salida_balon": 10, "presion": 8, "decision": 10, "fiabilidad_fisica": 7,
-        "abp": 5, "potencial": 8, "asociacion": 10, "ruptura": 7, "centro_lateral": 6
-    },
-    "Personalizado": {
-        "duelo_defensivo": 7, "duelo_aereo": 7, "velocidad_defensiva": 7,
-        "salida_balon": 7, "presion": 7, "decision": 7, "fiabilidad_fisica": 7,
-        "abp": 7, "potencial": 7, "asociacion": 7, "ruptura": 7, "centro_lateral": 7
-    }
-}
-
-FORMACIONES = {
-    "4-2-3-1 Noname": [
-        ("POR", 50, 90),
-        ("LI", 18, 73), ("DFC", 38, 76), ("DFC", 62, 76), ("LD", 82, 73),
-        ("MCD", 40, 58), ("MC", 60, 58),
-        ("EI", 18, 39), ("MCO", 50, 39), ("ED", 82, 39),
-        ("DC", 50, 18)
-    ],
-    "4-4-2 real: MP segundo punta": [
-        ("POR", 50, 90),
-        ("LI", 18, 73), ("DFC", 38, 76), ("DFC", 62, 76), ("LD", 82, 73),
-        ("EI", 18, 50), ("MCD", 40, 54), ("MC", 60, 54), ("ED", 82, 50),
-        ("MCO", 43, 24), ("DC", 57, 19)
-    ],
-    "3-4-3 cuadrado interior": [
-        ("POR", 50, 90),
-        ("DFC", 29, 76), ("DFC", 50, 78), ("DFC", 71, 76),
-        ("CAI", 15, 54), ("MCD", 40, 56), ("MC", 60, 56), ("CAD", 85, 54),
-        ("MCO", 40, 34), ("MCO", 60, 34), ("DC", 50, 18)
-    ]
-}
-
-MAPEO_PUESTOS = {
-    "POR": ["POR"],
-    "LD": ["LD", "CAD", "DFC"],
-    "LI": ["LI", "CAI", "DFC"],
-    "DFC": ["DFC"],
-    "MCD": ["MCD", "MC", "DFC"],
-    "MC": ["MC", "MCD", "MCO"],
-    "MCO": ["MCO", "MC", "DC", "EI", "ED"],
-    "ED": ["ED", "EI", "MCO", "DC"],
-    "EI": ["EI", "ED", "MCO", "DC"],
-    "DC": ["DC", "MCO"],
-    "CAD": ["CAD", "LD", "ED"],
-    "CAI": ["CAI", "LI", "EI"]
+    "Sistema nominal": "4-2-3-1",
+    "Interpretación real": "4-4-2 con mediapunta / segundo punta libre",
+    "Sistema alternativo": "3-4-3 con carriles altos y cuadrado interior",
+    "Salida": "Salida de 4. Laterales asimétricos: uno largo y otro corto/interior para proteger pérdida.",
+    "Amplitud": "Extremos abiertos. Si uno viene dentro, el lado contrario debe conservar amplitud.",
+    "Presión": "Bloque alto. Presión iniciada por delantero + mediapunta.",
+    "Orientación": "Cerrar dentro y forzar al rival a jugar hacia fuera.",
+    "Transición ofensiva": "Vertical tras robo, buscando mediapunta libre, delantero o espacio.",
+    "Transición defensiva": "Presión tras pérdida. Si se supera, embudo interior y reorganización.",
+    "Rest-defence": "3+2 o 3+1 según altura de pivotes/laterales.",
 }
 
 REGLAS_PRESION = {
     "Salida de 4 + pivote único": {
-        "estructura_rival": "4+1",
-        "ajuste": "El delantero va a impares evitando retorno. El mediapunta fija o salta sobre el pivote rival.",
-        "salto": "Si el central receptor queda lejos del punta, salta el extremo del lado y la línea defensiva ajusta marcas.",
-        "objetivo": "Cerrar dentro, impedir giro del pivote y forzar pase al lateral o balón largo."
+        "estructura": "4+1",
+        "plan": "Delantero va a impares evitando retorno. Mediapunta fija o marca pivote. Si el central receptor queda lejos, salta extremo y línea defensiva ajusta marcas.",
+        "objetivo": "Cerrar dentro, impedir que el pivote reciba de cara y forzar fuera o balón largo.",
     },
     "Salida de 4 + doble pivote": {
-        "estructura_rival": "4+2",
-        "ajuste": "Delantero y mediapunta van a pares. Uno salta y el otro cierra línea de retorno/interior.",
-        "salto": "Extremos orientan hacia fuera y saltan cuando el pase llega al lateral.",
-        "objetivo": "Evitar que los dos pivotes reciban de cara y obligar al rival a jugar por fuera."
+        "estructura": "4+2",
+        "plan": "Delantero y mediapunta van a pares: uno salta y el otro cierra retorno/interior. Extremos orientan y saltan al lateral.",
+        "objetivo": "Evitar recepción limpia de los pivotes y obligar a jugar por fuera.",
     },
     "Salida de 3": {
-        "estructura_rival": "3+1 / 3+2",
-        "ajuste": "Delantero y mediapunta parten desde dentro. Saltan sobre centrales cercanos cuando el balón va al central exterior.",
-        "salto": "Si el rival conecta con central alejado, salta el extremo y se realiza cambio de marca en línea defensiva.",
-        "objetivo": "Proteger dentro primero, activar presión al exterior y evitar progresión limpia."
+        "estructura": "3+1 / 3+2",
+        "plan": "Delantero y mediapunta parten desde dentro. Saltan a centrales cercanos cuando balón va a central exterior. Si conecta con el alejado, salta extremo y hay cambio de marca.",
+        "objetivo": "Proteger dentro primero, activar presión al exterior y evitar progresión limpia.",
     },
     "Lateral bajo en salida": {
-        "estructura_rival": "4 que se convierte en 3",
-        "ajuste": "Se interpreta igual que una salida de 3 si el lateral baja de forma estable.",
-        "salto": "La altura del rival marca la altura de nuestra presión: si ellos bajan, nosotros podemos subir.",
-        "objetivo": "No romper la estructura por la altura del lateral: orientar, fijar y saltar cuando el balón viaja fuera."
-    }
+        "estructura": "4 que se convierte en 3",
+        "plan": "Se interpreta como salida de 3 si el lateral baja de forma estable. Si ellos bajan, nosotros podemos subir altura.",
+        "objetivo": "No romper estructura por la altura del lateral: orientar, fijar y saltar cuando el balón viaja fuera.",
+    },
 }
 
-# =========================================================
-# DATOS DE EJEMPLO
-# =========================================================
+NECESIDADES_BASE = [
+    "Portero titular fiable.",
+    "Lateral derecho titular o de alto nivel.",
+    "Recambio de lateral/carrilero izquierdo para liberar a Raúl Crespo.",
+    "Central de rotación fiable, preferiblemente corrector/polivalente.",
+    "Mediocentro con pie y pausa.",
+    "Pivote/6 de contención que compita con Mati.",
+    "Delantero referencia real: fijación, descarga, área y presión coordinada.",
+    "Extremo intenso, disciplinado, vertical y trabajador.",
+]
 
-def datos_ejemplo():
-    data = [
-        # Plantilla propia
-        ["Ángel", "Noname", "Propio", "Primera Regional", "POR", "Portero titular", 27, 1800, 3, 6, 6, 6.5, 3, 7, 8.2, 6, 6.5, 6, 4, 5, "Alta", "Continuidad", "fiabilidad, experiencia", "Portero titular fiable. Prioridad: seguridad y continuidad."],
-        ["David", "Noname", "Propio", "Primera Regional", "POR", "Portero suplente", 23, 450, 3, 6, 6.5, 6, 3, 6.2, 7.8, 6, 7, 6, 4, 5, "Media", "Rotación", "juventud, margen", "Portero con margen y rol de rotación."],
-        ["Medu", "Noname", "Propio", "Primera Regional", "LD", "Lateral largo/corto según lado", 26, 1200, 7.3, 6.2, 7.2, 6.3, 7.5, 6.4, 5.8, 5.2, 6.8, 6.5, 6.8, 7.1, "Media", "Duda", "ritmo, agresividad, recorrido", "Lateral competitivo, condicionado por fiabilidad física."],
-        ["Ángel Santiago", "Noname", "Propio", "Primera Regional", "LD", "Lateral de rotación", 22, 500, 6.8, 5.8, 7.0, 5.9, 7.2, 6.0, 7.4, 4.8, 7.1, 5.8, 6.7, 6.2, "Media", "Rotación", "energía, recorrido", "Recurso útil para rotación. Más intensidad que precisión."],
-        ["Raúl Crespo", "Noname", "Propio", "Primera Regional", "LI", "Lateral izquierdo", 25, 1550, 7.2, 6.1, 6.8, 6.9, 7.0, 6.7, 7.8, 7.0, 6.9, 6.8, 6.2, 7.5, "Alta", "Continuidad", "zurdo, balón parado, salida", "Lateral útil por perfil zurdo, salida y ABP."],
-        ["Amine", "Noname", "Propio", "Primera Regional", "DFC", "Central dominante", 24, 1450, 8.3, 8.9, 6.4, 5.8, 6.5, 6.8, 8.0, 8.9, 7.4, 5.8, 5.6, 4.8, "Alta", "Continuidad", "duelo, área, ABP", "Central dominante en área, fuerte en duelos y balón parado."],
-        ["Asiel", "Noname", "Propio", "Primera Regional", "DFC", "Central corrector", 25, 1600, 8.1, 8.2, 6.6, 6.1, 6.4, 7.1, 8.3, 8.4, 7.1, 6.0, 5.8, 4.8, "Alta", "Continuidad", "regularidad, lectura, duelo", "Central fiable y competitivo. Sostiene bien el bloque medio-alto."],
-        ["Sergi", "Noname", "Propio", "Primera Regional", "DFC", "Central de apoyo", 24, 900, 7.3, 7.2, 6.9, 6.4, 6.3, 6.7, 7.6, 6.7, 6.9, 6.1, 5.9, 5.0, "Media", "Rotación", "equilibrio, corrección", "Central equilibrado, útil como complemento."],
-        ["Edu", "Noname", "Propio", "Primera Regional", "MC", "Pivote/MC de recorrido", 26, 1500, 7.6, 5.8, 7.2, 6.4, 8.0, 6.9, 8.0, 5.0, 6.8, 6.7, 7.2, 5.8, "Alta", "Continuidad", "presión, recorrido, intensidad", "Interior muy útil para sostener ritmo y presión."],
-        ["Frade", "Noname", "Propio", "Primera Regional", "MC", "Mediocentro combativo", 25, 1400, 7.4, 5.0, 6.7, 6.3, 7.6, 6.8, 7.9, 5.8, 6.6, 6.5, 6.8, 5.5, "Alta", "Continuidad", "agresividad, trabajo, equilibrio", "Jugador útil por agresividad e interpretación competitiva."],
-        ["Mati", "Noname", "Propio", "Primera Regional", "MC", "Mediocentro físico", 27, 1000, 6.9, 7.7, 6.2, 6.1, 6.8, 6.5, 7.5, 7.3, 6.5, 6.0, 5.9, 5.8, "Media", "Rotación", "juego aéreo, segunda jugada", "Más útil en contextos físicos y de segunda jugada."],
-        ["Nico", "Noname", "Propio", "Primera Regional", "MCO", "Mediapunta asociativo", 22, 1100, 5.8, 5.4, 6.8, 6.9, 6.7, 7.2, 7.6, 5.9, 7.5, 7.4, 6.8, 6.2, "Media", "Duda", "último pase, apoyo, llegada", "Mediapunta interesante para conectar juego y aparecer libre."],
-        ["Sergio García", "Noname", "Propio", "Primera Regional", "ED", "Extremo derecho", 24, 1000, 5.9, 5.0, 6.9, 6.5, 7.0, 6.7, 7.3, 6.8, 6.8, 6.7, 6.9, 7.3, "Media", "Rotación", "centro, golpeo, trabajo", "Extremo útil por golpeo, centro y trabajo sin balón."],
-        ["Raúl Calvo", "Noname", "Propio", "Primera Regional", "EI", "Extremo izquierdo", 24, 950, 5.7, 4.8, 7.1, 6.7, 6.9, 6.6, 7.0, 7.2, 6.9, 6.8, 7.0, 7.1, "Media", "Rotación", "zurdo, golpeo, amplitud", "Extremo zurdo útil para amplitud, golpeo y ABP."],
-        ["Viti", "Noname", "Propio", "Primera Regional", "ED", "Delantero/extremo de presión", 23, 800, 6.2, 5.0, 7.5, 5.8, 8.1, 5.9, 7.5, 5.3, 7.4, 5.9, 7.6, 5.9, "Media", "Duda", "presión, energía, ruptura", "Muy útil para modelos intensos. Menos peso como referencia."],
-        ["Martín", "Noname", "Propio", "Primera Regional", "DC", "Delantero de apoyo", 24, 700, 5.5, 7.0, 6.1, 5.9, 6.0, 6.2, 7.2, 6.8, 6.6, 6.1, 6.0, 5.6, "Media", "Rotación", "apoyo, remate", "Perfil de apoyo para alternancia."],
-        ["Samate", "Noname", "Propio", "Primera Regional", "DC", "Delantero referencia", 27, 1300, 5.8, 8.8, 6.1, 5.4, 6.2, 6.2, 7.0, 9.0, 6.8, 5.8, 6.4, 6.3, "Alta", "Continuidad", "juego directo, área, ABP", "Muy útil si el equipo necesita referencia, remate y segunda jugada."],
-        ["Noel", "Noname", "Propio", "Primera Regional", "DC", "Delantero rematador", 24, 650, 5.6, 8.4, 6.4, 5.5, 6.3, 6.5, 7.4, 8.7, 7.0, 5.7, 6.3, 6.0, "Media", "Revulsivo", "remate, área, juego aéreo", "Gran amenaza aérea y de remate."],
-
-        # Mercado / rivales
-        ["Álex Vera", "Rival 1", "Mercado", "Primera Regional", "LD", "Lateral profundo", 22, 1650, 7.8, 6.2, 8.2, 6.7, 7.9, 6.8, 8.2, 5.6, 8.1, 6.7, 7.8, 7.6, "Media", "Objetivo", "velocidad, presión, recorrido", "Muy interesante si se quiere lateral agresivo y capaz de defender campo abierto."],
-        ["Izan Mena", "Rival 2", "Mercado", "Primera Regional", "LI", "Lateral zurdo", 23, 1500, 7.2, 6.3, 7.3, 7.1, 7.0, 6.9, 8.1, 6.8, 7.7, 7.1, 6.8, 7.5, "Media", "Objetivo", "perfil zurdo, salida, centro", "Perfil útil para reforzar lado izquierdo con continuidad."],
-        ["Diego Llorente", "Rival 3", "Mercado", "Primera Regional", "DFC", "Central móvil", 21, 1200, 7.6, 7.8, 7.5, 7.0, 6.8, 7.0, 8.0, 7.1, 8.4, 6.5, 6.4, 5.2, "Media", "Objetivo", "movilidad, salida, proyección", "Central más preparado para defender metros a la espalda y mejorar salida."],
-        ["Mario Casas", "Rival 4", "Mercado", "Primera Regional", "MC", "Mediocentro organizador", 26, 1700, 7.1, 6.2, 6.6, 8.2, 7.0, 8.1, 8.2, 6.0, 7.5, 8.2, 6.4, 6.1, "Alta", "Objetivo", "salida, pausa, criterio", "Perfil para elevar calidad de salida y toma de decisiones."],
-        ["Adri Navas", "Rival 5", "Mercado", "Primera Regional", "MCO", "Mediapunta creativo", 24, 1450, 5.7, 5.1, 6.9, 7.4, 6.8, 7.8, 7.7, 6.3, 7.9, 8.0, 7.2, 6.4, "Media", "Objetivo", "último pase, claridad, apoyo", "Mediapunta más fino para ordenar y acelerar el último tercio."],
-        ["Pablo Sanz", "Rival 6", "Mercado", "Primera Regional", "ED", "Extremo vertical", 22, 1550, 5.5, 4.8, 8.0, 6.6, 7.4, 6.7, 8.0, 5.8, 8.1, 6.8, 8.2, 7.1, "Media", "Objetivo", "velocidad, desborde, ruptura", "Extremo vertical y agresivo. Da ruptura y amenaza al espacio."],
-        ["Rubén Gil", "Rival 7", "Mercado", "Primera Regional", "DC", "Delantero mixto", 24, 1500, 6.1, 7.8, 7.1, 6.2, 7.4, 6.9, 8.3, 7.8, 7.8, 6.5, 7.2, 6.7, "Media", "Objetivo", "presión, área, movilidad", "Buen recambio si se busca mezclar presión y amenaza de área."],
-    ]
-    cols = ["nombre", "equipo", "tipo", "liga", "posicion", "rol", "edad", "minutos"] + METRICAS + ["confianza", "estado", "drivers", "observacion"]
-    return pd.DataFrame(data, columns=cols)
-
-def datos_rivales_ejemplo():
-    return pd.DataFrame([
-        ["Rival 4+1", "4-3-3", "Salida de 4 + pivote único", "Bloque medio", "Laterales altos", "Transición vertical", "Presionar central receptor, MP sobre pivote, orientar fuera."],
-        ["Rival 4+2", "4-2-3-1", "Salida de 4 + doble pivote", "Bloque medio-alto", "Extremos abiertos", "Ataque por banda", "DC+MP a pares, cerrar doble pivote, saltar con extremo a lateral."],
-        ["Rival línea de 3", "3-5-2", "Salida de 3", "Bloque medio", "Carriles altos", "Juego directo + segunda jugada", "Partir desde dentro, saltar a centrales exteriores, cambio de marca si conecta alejado."],
-    ], columns=["rival", "sistema", "salida_rival", "bloque", "comportamiento_bandas", "amenaza", "plan_presion"])
-
-# =========================================================
-# FUNCIONES DE MOTOR
-# =========================================================
-
-def normalizar_df(df):
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    requeridas = ["nombre", "equipo", "tipo", "liga", "posicion", "rol", "edad", "minutos"] + METRICAS
-    faltan = [c for c in requeridas if c not in df.columns]
-    if faltan:
-        return None, faltan
-
-    for col in ["confianza", "estado", "drivers", "observacion"]:
-        if col not in df.columns:
-            df[col] = ""
-
-    for c in ["edad", "minutos"] + METRICAS:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-
-    df["posicion"] = df["posicion"].astype(str).str.upper().str.strip()
-    df["tipo"] = df["tipo"].astype(str).str.strip()
-    return df, []
-
-def score_jugador(row, pesos):
-    total = sum(pesos.values()) or 1
-    return round(sum(float(row[m]) * pesos[m] for m in METRICAS) / total, 2)
-
-def nivel(score):
-    if score >= 8.25:
-        return "Muy alto"
-    if score >= 7.25:
-        return "Alto"
-    if score >= 6.25:
-        return "Medio"
-    return "Bajo"
-
-def semaforo(score):
-    if score >= 8.25:
-        return "🟢"
-    if score >= 7.25:
-        return "🟡"
-    if score >= 6.25:
-        return "🟠"
-    return "🔴"
-
-def similitud(row, ref, pesos):
-    total = sum(pesos.values()) or 1
-    distancia = sum(((float(row[m]) - float(ref[m])) ** 2) * pesos[m] for m in METRICAS) / total
-    distancia = distancia ** 0.5
-    return round(max(0, 10 - distancia * 1.7), 2)
-
-def bonus_slot(pos, slot):
-    posibles = MAPEO_PUESTOS.get(slot, [slot])
-    if pos == slot:
-        return 0.35
-    if pos in posibles:
-        return 0.15
-    return -0.20
-
-def construir_xi(pool, formacion):
-    slots = FORMACIONES[formacion]
-    usados = set()
-    xi = []
-    for slot, x, y in slots:
-        candidatos = pool[(~pool["nombre"].isin(usados)) & (pool["posicion"].isin(MAPEO_PUESTOS.get(slot, [slot])) )].copy()
-        if candidatos.empty:
-            xi.append({"slot": slot, "x": x, "y": y, "nombre": "VACANTE", "equipo": "", "posicion": slot, "score_modelo": 0, "rol": "Sin perfil", "vacante": True})
-            continue
-        candidatos["score_slot"] = candidatos["score_modelo"] + candidatos["posicion"].apply(lambda p: bonus_slot(p, slot))
-        pick = candidatos.sort_values(["score_slot", "score_modelo", "minutos"], ascending=False).iloc[0]
-        usados.add(pick["nombre"])
-        xi.append({"slot": slot, "x": x, "y": y, "nombre": pick["nombre"], "equipo": pick["equipo"], "posicion": pick["posicion"], "score_modelo": pick["score_modelo"], "rol": pick["rol"], "vacante": False})
-    banquillo = pool[~pool["nombre"].isin(usados)].sort_values(["score_modelo", "minutos"], ascending=False).head(7)
-    return xi, banquillo
-
-def render_pizarra(xi, modo_visual):
-    pitch_bg = "#23a236"
-    line = "rgba(255,255,255,.62)"
-    card_bg = "#ffffff" if modo_visual == "Claro" else "#111827"
-    card_color = "#0f172a" if modo_visual == "Claro" else "#ffffff"
-    border = "#2563eb"
-    html = [f"""
-    <div style="position:relative;width:100%;height:660px;background:{pitch_bg};border:4px solid #d5f5d9;border-radius:18px;overflow:hidden;">
-      <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:{line};"></div>
-      <div style="position:absolute;left:50%;top:50%;width:116px;height:116px;border:2px solid {line};border-radius:50%;transform:translate(-58px,-58px);"></div>
-      <div style="position:absolute;left:22%;right:22%;top:9%;height:18%;border:2px solid {line};"></div>
-      <div style="position:absolute;left:34%;right:34%;top:9%;height:8%;border:2px solid {line};"></div>
-      <div style="position:absolute;left:22%;right:22%;bottom:9%;height:18%;border:2px solid {line};"></div>
-      <div style="position:absolute;left:34%;right:34%;bottom:9%;height:8%;border:2px solid {line};"></div>
-    """]
-    for p in xi:
-        bg = "#f8fafc" if not p["vacante"] and modo_visual == "Claro" else ("#111827" if not p["vacante"] else "#475569")
-        color = "#0f172a" if not p["vacante"] and modo_visual == "Claro" else "#ffffff"
-        score = "--" if p["vacante"] else f"{p['score_modelo']:.1f}"
-        html.append(f"""
-        <div style="position:absolute;left:calc({p['x']}% - 76px);top:calc({p['y']}% - 38px);width:152px;min-height:76px;background:{bg};color:{color};border:2px solid {border};border-radius:14px;text-align:center;padding:11px 7px 8px;box-shadow:0 7px 18px rgba(0,0,0,.25);">
-          <div style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);background:#2563eb;color:white;border:2px solid #93c5fd;width:38px;height:38px;line-height:34px;border-radius:50%;font-weight:800;font-size:12px;">{score}</div>
-          <div style="font-size:15px;font-weight:800;margin-top:8px;line-height:1.05;">{p['nombre']}</div>
-          <div style="font-size:11px;color:#f59e0b;margin-top:4px;">{p['slot']} · {p['posicion']}</div>
-          <div style="font-size:10px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{p['rol']}</div>
-        </div>
-        """)
-    html.append("</div>")
-    return "".join(html)
-
-def top_prioridades(pesos):
-    orden = sorted(pesos.items(), key=lambda x: x[1], reverse=True)
-    return [NOMBRES_METRICAS[x[0]] for x in orden[:4]], [NOMBRES_METRICAS[x[0]] for x in orden[-3:]]
-
-def diagnostico_modelo(pesos):
-    altas, bajas = top_prioridades(pesos)
-    return f"El motor prioriza {', '.join(altas)}. Las métricas menos determinantes en este ajuste son {', '.join(bajas)}. El score no mide calidad pura: mide compatibilidad con el plan competitivo definido."
-
-def generar_plan_presion(salida_rival, sistema_rival, bloque_rival):
-    regla = REGLAS_PRESION.get(salida_rival, REGLAS_PRESION["Salida de 4 + doble pivote"])
-    extra = ""
-    if bloque_rival == "Bloque bajo":
-        extra = " Como el rival tiende a hundirse, la presión inicial debe servir para instalar al equipo en campo rival y sostener rest-defence."
-    elif bloque_rival == "Bloque alto":
-        extra = " Si el rival aprieta alto, conviene alternar corto-largo y preparar segunda jugada tras atraer."
+def aplicar_estilo(modo):
+    if modo == "Oscuro":
+        st.markdown("""
+        <style>
+        .stApp {background:#0B1118;color:#E5E7EB;}
+        section[data-testid="stSidebar"] {background:#101923;border-right:1px solid #263241;}
+        h1,h2,h3,h4 {color:#F8FAFC !important;}
+        [data-testid="stMetric"] {background:#111827;border:1px solid #263241;border-radius:14px;padding:12px;}
+        .card {background:#111827;border:1px solid #263241;border-radius:14px;padding:14px;margin-bottom:10px;}
+        </style>
+        """, unsafe_allow_html=True)
     else:
-        extra = " La clave será sostener altura, orientar fuera y no romper la estructura interior."
-    return f"""
-**Sistema rival:** {sistema_rival}  
-**Estructura de salida rival:** {regla['estructura_rival']}  
+        st.markdown("""
+        <style>
+        .stApp {background:#F7F9FC;color:#111827;}
+        section[data-testid="stSidebar"] {background:#FFFFFF;border-right:1px solid #E5E7EB;}
+        h1,h2,h3,h4 {color:#0F172A !important;}
+        [data-testid="stMetric"] {background:#FFFFFF;border:1px solid #E5E7EB;border-radius:14px;padding:12px;box-shadow:0 1px 3px rgba(15,23,42,.06);}
+        .card {background:#FFFFFF;border:1px solid #E5E7EB;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(15,23,42,.06);}
+        </style>
+        """, unsafe_allow_html=True)
 
-**Ajuste principal:** {regla['ajuste']}  
-**Salto previsto:** {regla['salto']}  
-**Objetivo de la presión:** {regla['objetivo']}  
-{extra}
-"""
+def cargar_csv(uploaded, default_path):
+    if uploaded is not None:
+        return pd.read_csv(uploaded, encoding="utf-8-sig")
+    if Path(default_path).exists():
+        return pd.read_csv(default_path, encoding="utf-8-sig")
+    return pd.DataFrame()
 
-def informe_jugador(row):
-    return f"""
-INFORME INDIVIDUAL — {row['nombre']}
+def limpiar(df):
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    for col in ENCAJES:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    for col in df.columns:
+        if col not in ENCAJES:
+            df[col] = df[col].fillna("").astype(str)
+    if "decision_deportiva" in df.columns:
+        df["decision_deportiva"] = df["decision_deportiva"].replace("", "Pendiente de evaluación")
+    return df
 
-Equipo: {row['equipo']}
-Tipo: {row['tipo']}
-Liga: {row['liga']}
-Posición: {row['posicion']}
-Rol: {row['rol']}
-Edad: {row['edad']}
-Minutos: {row['minutos']}
-Estado: {row['estado']}
-Confianza: {row['confianza']}
+def csv_bytes(df):
+    return df.to_csv(index=False).encode("utf-8-sig")
 
-Score de encaje en el modelo: {row['score_modelo']}/10
-Nivel: {row['nivel']}
+def decision_icon(decision):
+    icons = {
+        "Renovar": "🟢 Renovar",
+        "Renovar con rol secundario": "🔵 Renovar con rol secundario",
+        "Duda": "🟡 Duda",
+        "Pendiente de evaluación": "🟣 Pendiente",
+        "No ofrecer renovación": "🔴 No ofrecer renovación",
+        "Objetivo mercado": "⭐ Objetivo mercado",
+        "Seguimiento": "👁️ Seguimiento",
+        "Descartar": "⚫ Descartar",
+    }
+    return icons.get(decision, decision)
 
-Drivers:
-{row['drivers']}
+def multiselect_col(df, col, label):
+    if col not in df.columns:
+        return []
+    vals = sorted([x for x in df[col].dropna().unique().tolist() if str(x).strip()])
+    return st.multiselect(label, vals, default=vals)
 
-Lectura técnico-táctica:
-{row['observacion']}
+def detectar_necesidades(df):
+    necesidades = list(NECESIDADES_BASE)
+    if "decision_deportiva" in df.columns and "posicion_principal" in df.columns:
+        problemas = df[df["decision_deportiva"].isin(["No ofrecer renovación", "Duda", "Pendiente de evaluación"])]
+        if len(problemas[problemas["posicion_principal"].str.contains("POR", na=False)]) >= 1:
+            necesidades.append("Revisar portería completa: titular + segundo fiable.")
+        if len(problemas[problemas["posicion_principal"].str.contains("DC", na=False)]) >= 2:
+            necesidades.append("Prioridad máxima: reconstruir la posición de delantero centro.")
+        if len(problemas[problemas["posicion_principal"].str.contains("ED|EI", regex=True, na=False)]) >= 2:
+            necesidades.append("Añadir al menos un extremo de alta intensidad y disciplina defensiva.")
+    out = []
+    for n in necesidades:
+        if n not in out:
+            out.append(n)
+    return out
 
-Conclusión:
-{row['nombre']} debe valorarse por su coherencia con el modelo Noname: presión alta, cierre interior, verticalidad tras robo, laterales asimétricos, amplitud exterior y rest-defence preparado.
-"""
+def ficha_jugador(df, nombre):
+    row = df[df["nombre"] == nombre].iloc[0]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Posición", row.get("posicion_principal", ""))
+    c2.metric("Decisión", row.get("decision_deportiva", ""))
+    c3.metric("Prioridad", row.get("prioridad_renovacion", ""))
+    c4.metric("Riesgo", row.get("riesgo_continuidad", ""))
 
-def informe_modelo():
-    return f"""
-MODELO DE JUEGO — NONAME
+    st.markdown(f"""
+    <div class="card">
+    <h3>{row.get('nombre','')}</h3>
+    <b>Equipo:</b> {row.get('equipo','')}<br>
+    <b>Nombre oficial:</b> {row.get('nombre_oficial','')}<br>
+    <b>Rol actual:</b> {row.get('rol_actual','')}<br>
+    <b>Rol ideal:</b> {row.get('rol_ideal','')}<br>
+    <b>Rol próxima temporada:</b> {row.get('rol_proxima_temporada','')}
+    </div>
+    """, unsafe_allow_html=True)
 
-Sistema nominal:
-{MODELO_NONAME['sistema_nominal']}
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        enc_cols = [c for c in ENCAJES if c in df.columns]
+        enc = pd.DataFrame({
+            "Encaje": [NOMBRES_ENCAJE.get(c, c) for c in enc_cols],
+            "Valor": [float(row[c]) for c in enc_cols],
+        }).set_index("Encaje")
+        st.subheader("Encajes")
+        st.bar_chart(enc)
 
-Interpretación real:
-{MODELO_NONAME['estructura_real']}
+    with col2:
+        st.subheader("Lectura")
+        st.write(f"**Fortalezas:** {row.get('fortalezas','')}")
+        st.write(f"**Debilidades:** {row.get('debilidades','')}")
+        st.write(f"**Dónde rinde:** {row.get('contexto_donde_rinde','')}")
+        st.write(f"**Dónde sufre:** {row.get('contexto_donde_sufre','')}")
+        st.write(f"**Limitación principal:** {row.get('limitacion_principal','')}")
 
-Sistema alternativo:
-{MODELO_NONAME['sistema_alternativo']}
+    st.subheader("Observación táctica")
+    st.info(row.get("observacion_tactica", ""))
+    st.subheader("Conclusión")
+    st.write(row.get("conclusion", ""))
 
-Identidad:
-{MODELO_NONAME['identidad']}
-
-Salida:
-{MODELO_NONAME['salida']}
-
-Amplitud:
-{MODELO_NONAME['amplitud']}
-
-Presión:
-{MODELO_NONAME['presion']}
-
-Orientación defensiva:
-{MODELO_NONAME['orientacion']}
-
-Transición ofensiva:
-{MODELO_NONAME['transicion_ofensiva']}
-
-Transición defensiva:
-{MODELO_NONAME['transicion_defensiva']}
-
-Rest-defence:
-{MODELO_NONAME['rest_defence']}
-
-Ocupación de área:
-{MODELO_NONAME['area']}
-"""
-
-# =========================================================
-# INICIALIZACIÓN
-# =========================================================
-
-if "players" not in st.session_state:
-    st.session_state.players = datos_ejemplo()
-if "rivals" not in st.session_state:
-    st.session_state.rivals = datos_rivales_ejemplo()
-
-# =========================================================
-# SIDEBAR
-# =========================================================
-
-modo_visual = st.sidebar.radio("Modo visual", ["Claro", "Oscuro"], horizontal=True, index=0)
-aplicar_estilo(modo_visual)
+def ranking_table(df, metric):
+    cols = ["nombre", "equipo", "tipo", "posicion_principal", "decision_deportiva", metric, "rol_proxima_temporada"]
+    cols = [c for c in cols if c in df.columns]
+    return df[cols].sort_values(metric, ascending=False)
 
 st.sidebar.title("Heras MatchLab")
-st.sidebar.caption("Motor de planificación deportiva | Noname")
+st.sidebar.caption("Planificación + ojeo | Noname")
 
-archivo = st.sidebar.file_uploader("Subir CSV de jugadores", type=["csv"])
-if archivo is not None:
-    tmp = pd.read_csv(archivo)
-    norm, faltan = normalizar_df(tmp)
-    if faltan:
-        st.sidebar.error("Faltan columnas: " + ", ".join(faltan))
-    else:
-        st.session_state.players = norm
-        st.sidebar.success("CSV cargado correctamente.")
-
-if st.sidebar.button("Restaurar datos ejemplo"):
-    st.session_state.players = datos_ejemplo()
-    st.session_state.rivals = datos_rivales_ejemplo()
-    st.sidebar.success("Datos restaurados.")
+modo = st.sidebar.radio("Modo visual", ["Claro", "Oscuro"], horizontal=True, index=0)
+aplicar_estilo(modo)
 
 st.sidebar.markdown("---")
-modelo = st.sidebar.selectbox("Modelo de juego", list(PRESETS_MODELO.keys()), index=0)
+st.sidebar.subheader("Datos")
+uploaded_jug = st.sidebar.file_uploader("Subir jugadores_noname.csv", type=["csv"])
+uploaded_ojeados = st.sidebar.file_uploader("Subir jugadores_ojeados_noname.csv", type=["csv"])
 
-st.sidebar.subheader("Pesos del motor")
-pesos = {}
-for m in METRICAS:
-    pesos[m] = st.sidebar.slider(NOMBRES_METRICAS[m], 0, 10, PRESETS_MODELO[modelo][m])
+jugadores = limpiar(cargar_csv(uploaded_jug, JUGADORES_CSV))
+ojeados = limpiar(cargar_csv(uploaded_ojeados, OJEADOS_CSV))
 
-# =========================================================
-# CÁLCULO
-# =========================================================
+if jugadores.empty:
+    st.error("No se encontró jugadores_noname.csv. Súbelo desde la barra lateral o ponlo en la raíz del repo.")
+    st.stop()
 
-df = st.session_state.players.copy()
-df["score_modelo"] = df.apply(lambda r: score_jugador(r, pesos), axis=1)
-df["nivel"] = df["score_modelo"].apply(nivel)
-df["semaforo"] = df["score_modelo"].apply(semaforo)
+if ojeados.empty:
+    st.warning("No se encontró jugadores_ojeados_noname.csv. La app funcionará solo con plantilla propia.")
+    ojeados = pd.DataFrame(columns=jugadores.columns)
 
-propios = df[df["tipo"].str.lower() == "propio"].copy()
-mercado = df[df["tipo"].str.lower().isin(["mercado", "recambio", "rival"])].copy()
+# Alinear columnas antes de unir
+for col in jugadores.columns:
+    if col not in ojeados.columns:
+        ojeados[col] = ""
+for col in ojeados.columns:
+    if col not in jugadores.columns:
+        jugadores[col] = ""
+ojeados = ojeados[jugadores.columns]
+todos = pd.concat([jugadores, ojeados], ignore_index=True)
 
-# =========================================================
-# CABECERA
-# =========================================================
-
-st.title("Heras MatchLab | Motor de planificación Noname")
-st.caption("Modelo de juego · Scouting · Comparador · Presión según rival · XI ideal · Informes")
+st.title("Heras MatchLab | Planificación + Ojeo Noname")
+st.caption("App basada en dos CSV: plantilla propia + lista de ojeo de rivales.")
 
 tabs = st.tabs([
     "📌 Resumen",
-    "🧠 Modelo Noname",
-    "🔎 Scouting",
+    "📋 Plantilla",
+    "👁️ Lista de ojeo",
     "🔁 Comparador",
-    "🎯 Motor de presión",
-    "🧩 XI ideal",
-    "📝 Informes / Exportar"
+    "👤 Ficha jugador",
+    "🧠 Modelo / Encaje",
+    "🎯 Mercado",
+    "⚙️ Motor presión",
+    "📤 Exportar",
 ])
-
-# =========================================================
-# RESUMEN
-# =========================================================
 
 with tabs[0]:
     st.header("Resumen ejecutivo")
 
+    total_propios = len(jugadores)
+    total_ojeados = len(ojeados)
+
+    renovar = int((jugadores["decision_deportiva"] == "Renovar").sum())
+    dudas = int((jugadores["decision_deportiva"] == "Duda").sum())
+    no_renovar = int((jugadores["decision_deportiva"] == "No ofrecer renovación").sum())
+    objetivos = int((ojeados["decision_deportiva"] == "Objetivo mercado").sum()) if not ojeados.empty else 0
+
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Jugadores", len(df))
-    c2.metric("Propios", len(propios))
-    c3.metric("Mercado/Rivales", len(mercado))
-    c4.metric("Score plantilla", round(propios["score_modelo"].mean(), 2) if not propios.empty else 0)
-    c5.metric("Score mercado", round(mercado["score_modelo"].mean(), 2) if not mercado.empty else 0)
+    c1.metric("Plantilla propia", total_propios)
+    c2.metric("Jugadores ojeados", total_ojeados)
+    c3.metric("Renovar", renovar)
+    c4.metric("Dudas propias", dudas)
+    c5.metric("Objetivos mercado", objetivos)
 
-    col_a, col_b = st.columns([1.25, 1])
+    col1, col2 = st.columns([1.15, 1])
+    with col1:
+        st.subheader("Decisiones de plantilla")
+        cols = [c for c in COLUMNAS_DECISION if c in jugadores.columns]
+        vista = jugadores[cols].copy()
+        vista["decision_deportiva"] = vista["decision_deportiva"].apply(decision_icon)
+        st.dataframe(vista, use_container_width=True, hide_index=True)
 
-    with col_a:
-        st.subheader("Ranking plantilla propia")
-        st.dataframe(
-            propios[["semaforo","nombre","posicion","rol","edad","minutos","score_modelo","nivel","estado","drivers"]]
-            .sort_values("score_modelo", ascending=False),
-            use_container_width=True,
-            hide_index=True
-        )
+    with col2:
+        st.subheader("Necesidades principales")
+        for n in detectar_necesidades(jugadores)[:9]:
+            st.write(f"- {n}")
 
-    with col_b:
-        st.subheader("Lectura del modelo")
-        st.info(diagnostico_modelo(pesos))
-        if not propios.empty:
-            st.subheader("Encaje medio por posición")
-            st.bar_chart(propios.groupby("posicion")["score_modelo"].mean().sort_values(ascending=False))
-
-    st.subheader("Top mercado recomendado")
-    st.dataframe(
-        mercado[["semaforo","nombre","equipo","posicion","rol","edad","score_modelo","nivel","confianza","drivers"]]
-        .sort_values("score_modelo", ascending=False).head(10),
-        use_container_width=True,
-        hide_index=True
-    )
-
-# =========================================================
-# MODELO NONAME
-# =========================================================
+        st.subheader("Top ojeo por encaje")
+        if not ojeados.empty:
+            top_ojeo = ojeados.sort_values("encaje_modelo_general", ascending=False).head(6)
+            st.dataframe(
+                top_ojeo[["nombre", "equipo", "posicion_principal", "decision_deportiva", "encaje_modelo_general"]],
+                use_container_width=True,
+                hide_index=True,
+            )
 
 with tabs[1]:
-    st.header("Modelo de juego Noname")
+    st.header("Plantilla propia")
 
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.markdown(f"<div class='card'><b>Sistema nominal</b><br>{MODELO_NONAME['sistema_nominal']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='card'><b>Interpretación real</b><br>{MODELO_NONAME['estructura_real']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='card'><b>Sistema alternativo</b><br>{MODELO_NONAME['sistema_alternativo']}</div>", unsafe_allow_html=True)
-    with m2:
-        st.markdown(f"<div class='card'><b>Salida</b><br>{MODELO_NONAME['salida']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='card'><b>Amplitud</b><br>{MODELO_NONAME['amplitud']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='card'><b>Rest-defence</b><br>{MODELO_NONAME['rest_defence']}</div>", unsafe_allow_html=True)
-    with m3:
-        st.markdown(f"<div class='card'><b>Presión</b><br>{MODELO_NONAME['presion']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='card'><b>Orientación</b><br>{MODELO_NONAME['orientacion']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='card'><b>Transición ofensiva</b><br>{MODELO_NONAME['transicion_ofensiva']}</div>", unsafe_allow_html=True)
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        pos = multiselect_col(jugadores, "posicion_principal", "Posición")
+    with f2:
+        decs = multiselect_col(jugadores, "decision_deportiva", "Decisión")
+    with f3:
+        riesgo = multiselect_col(jugadores, "riesgo_continuidad", "Riesgo")
 
-    st.subheader("Pesos actuales del motor")
-    pesos_df = pd.DataFrame({"Principio": [NOMBRES_METRICAS[m] for m in METRICAS], "Peso": [pesos[m] for m in METRICAS]}).set_index("Principio")
-    st.bar_chart(pesos_df)
+    data = jugadores.copy()
+    if pos:
+        data = data[data["posicion_principal"].isin(pos)]
+    if decs:
+        data = data[data["decision_deportiva"].isin(decs)]
+    if riesgo:
+        data = data[data["riesgo_continuidad"].isin(riesgo)]
 
-    st.subheader("Editor de jugadores")
-    st.write("Puedes editar datos en sesión. Para guardarlo permanentemente, exporta el CSV y súbelo al repo.")
-    edited = st.data_editor(st.session_state.players, use_container_width=True, num_rows="dynamic")
-    if st.button("Guardar cambios de plantilla en sesión"):
-        st.session_state.players = edited
-        st.success("Cambios guardados en esta sesión.")
-
-# =========================================================
-# SCOUTING
-# =========================================================
+    cols = [c for c in COLUMNAS_DECISION if c in data.columns]
+    st.dataframe(data[cols], use_container_width=True, hide_index=True)
 
 with tabs[2]:
-    st.header("Scouting y búsqueda de perfiles")
+    st.header("Lista de ojeo")
 
-    f1, f2, f3, f4 = st.columns(4)
-    with f1:
-        buscador = st.text_input("Buscar nombre")
-        pos = st.multiselect("Posición", sorted(df["posicion"].unique()), default=sorted(df["posicion"].unique()))
-    with f2:
-        tipo = st.multiselect("Tipo", sorted(df["tipo"].unique()), default=sorted(df["tipo"].unique()))
-        equipo = st.multiselect("Equipo", sorted(df["equipo"].unique()), default=sorted(df["equipo"].unique()))
-    with f3:
-        edad = st.slider("Edad", 16, 45, (18, 32))
-        score_min = st.slider("Score mínimo", 0.0, 10.0, 6.0, 0.1)
-    with f4:
-        modo = st.radio("Modo de ranking", ["Score", "Similitud"], horizontal=True)
-        solo_mercado = st.checkbox("Solo mercado", value=False)
+    st.info("Los nombres actuales son ficticios. Sustituiremos cada fila por jugadores reales vistos contra nosotros.")
 
-    base = df[
-        (df["posicion"].isin(pos)) &
-        (df["tipo"].isin(tipo)) &
-        (df["equipo"].isin(equipo)) &
-        (df["edad"].between(edad[0], edad[1])) &
-        (df["score_modelo"] >= score_min)
-    ].copy()
-
-    if buscador:
-        base = base[base["nombre"].str.contains(buscador, case=False, na=False)]
-    if solo_mercado:
-        base = base[base["tipo"].str.lower().isin(["mercado","recambio","rival"])]
-
-    if modo == "Similitud" and not df.empty:
-        ref_name = st.selectbox("Jugador referencia", df["nombre"].tolist())
-        ref = df[df["nombre"] == ref_name].iloc[0]
-        misma_pos = st.checkbox("Solo misma posición que referencia", value=True)
-        if misma_pos:
-            base = base[base["posicion"] == ref["posicion"]].copy()
-        base["similitud"] = base.apply(lambda r: similitud(r, ref, pesos), axis=1)
-        base = base.sort_values(["similitud", "score_modelo"], ascending=False)
-        columnas = ["semaforo","nombre","equipo","tipo","posicion","edad","score_modelo","similitud","nivel","drivers"]
+    if ojeados.empty:
+        st.warning("No hay jugadores ojeados cargados.")
     else:
-        base = base.sort_values("score_modelo", ascending=False)
-        columnas = ["semaforo","nombre","equipo","tipo","posicion","edad","score_modelo","nivel","confianza","drivers"]
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            pos_o = multiselect_col(ojeados, "posicion_principal", "Posición ojeada")
+        with f2:
+            equipo_o = multiselect_col(ojeados, "equipo", "Equipo rival")
+        with f3:
+            decision_o = multiselect_col(ojeados, "decision_deportiva", "Estado ojeo")
 
-    st.dataframe(base[columnas], use_container_width=True, hide_index=True)
+        oj = ojeados.copy()
+        if pos_o:
+            oj = oj[oj["posicion_principal"].isin(pos_o)]
+        if equipo_o:
+            oj = oj[oj["equipo"].isin(equipo_o)]
+        if decision_o:
+            oj = oj[oj["decision_deportiva"].isin(decision_o)]
 
-    if not base.empty:
-        st.subheader("Detalle del perfil")
-        det_name = st.selectbox("Jugador para detalle", base["nombre"].tolist())
-        det = base[base["nombre"] == det_name].iloc[0]
-        d1, d2 = st.columns([1, 1.2])
-        with d1:
-            st.metric("Score", det["score_modelo"])
-            st.metric("Nivel", det["nivel"])
-            st.write(f"**Equipo:** {det['equipo']}")
-            st.write(f"**Posición:** {det['posicion']}")
-            st.write(f"**Rol:** {det['rol']}")
-            st.write(f"**Drivers:** {det['drivers']}")
-            st.write(f"**Observación:** {det['observacion']}")
-        with d2:
-            chart = pd.DataFrame({"Métrica": [NOMBRES_METRICAS[m] for m in METRICAS], "Valor": [det[m] for m in METRICAS]}).set_index("Métrica")
-            st.bar_chart(chart)
-
-# =========================================================
-# COMPARADOR
-# =========================================================
+        cols = ["id_jugador", "nombre", "equipo", "posicion_principal", "rol_ideal", "decision_deportiva", "prioridad_renovacion", "encaje_modelo_general", "conclusion"]
+        cols = [c for c in cols if c in oj.columns]
+        st.dataframe(oj[cols].sort_values("encaje_modelo_general", ascending=False), use_container_width=True, hide_index=True)
 
 with tabs[3]:
-    st.header("Comparador jugador propio vs recambios")
-
-    propios_names = propios["nombre"].tolist() if not propios.empty else df["nombre"].tolist()
-    jugador_a = st.selectbox("Jugador propio/base", propios_names)
-    row_a = df[df["nombre"] == jugador_a].iloc[0]
-
-    candidatos_b = df[df["posicion"].isin(MAPEO_PUESTOS.get(row_a["posicion"], [row_a["posicion"]]))]["nombre"].tolist()
-    if len(candidatos_b) == 0:
-        candidatos_b = df["nombre"].tolist()
-
-    jugador_b = st.selectbox("Recambio/comparado", candidatos_b)
-    row_b = df[df["nombre"] == jugador_b].iloc[0]
+    st.header("Comparador propio vs ojeado")
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown(f"<div class='card'><h3>{row_a['nombre']}</h3><b>{row_a['posicion']} · {row_a['rol']}</b><br>Score: {row_a['score_modelo']}<br>{row_a['drivers']}</div>", unsafe_allow_html=True)
+        jugador_propio = st.selectbox("Jugador propio", jugadores["nombre"].tolist())
     with c2:
-        st.markdown(f"<div class='card'><h3>{row_b['nombre']}</h3><b>{row_b['posicion']} · {row_b['rol']}</b><br>Score: {row_b['score_modelo']}<br>{row_b['drivers']}</div>", unsafe_allow_html=True)
+        if ojeados.empty:
+            st.warning("No hay jugadores ojeados para comparar.")
+            st.stop()
+        jugador_ojeado = st.selectbox("Jugador ojeado", ojeados["nombre"].tolist())
+
+    propio = jugadores[jugadores["nombre"] == jugador_propio].iloc[0]
+    externo = ojeados[ojeados["nombre"] == jugador_ojeado].iloc[0]
 
     comp = pd.DataFrame({
-        "Métrica": [NOMBRES_METRICAS[m] for m in METRICAS],
-        row_a["nombre"]: [row_a[m] for m in METRICAS],
-        row_b["nombre"]: [row_b[m] for m in METRICAS],
-        "Diferencia B-A": [round(row_b[m] - row_a[m], 2) for m in METRICAS]
+        "Métrica": [NOMBRES_ENCAJE.get(c, c) for c in ENCAJES],
+        propio["nombre"]: [float(propio[c]) for c in ENCAJES],
+        externo["nombre"]: [float(externo[c]) for c in ENCAJES],
+        "Diferencia ojeado-propio": [round(float(externo[c]) - float(propio[c]), 2) for c in ENCAJES],
     })
 
     cc1, cc2 = st.columns([1, 1])
     with cc1:
         st.dataframe(comp, use_container_width=True, hide_index=True)
     with cc2:
-        st.bar_chart(comp.set_index("Métrica")[[row_a["nombre"], row_b["nombre"]]])
+        st.bar_chart(comp.set_index("Métrica")[[propio["nombre"], externo["nombre"]]])
 
-    if row_b["score_modelo"] > row_a["score_modelo"]:
-        st.success(f"{row_b['nombre']} mejora el encaje global en el modelo actual ({row_b['score_modelo']} vs {row_a['score_modelo']}).")
-    elif row_b["score_modelo"] < row_a["score_modelo"]:
-        st.warning(f"{row_b['nombre']} no mejora el score global, aunque puede aportar matices concretos.")
+    delta = float(externo["encaje_modelo_general"]) - float(propio["encaje_modelo_general"])
+    if delta > 0.5:
+        st.success(f"{externo['nombre']} mejora claramente el encaje general respecto a {propio['nombre']} (+{delta:.1f}).")
+    elif delta < -0.5:
+        st.warning(f"{externo['nombre']} no mejora el encaje general de {propio['nombre']} ({delta:.1f}).")
     else:
-        st.info("Ambos perfiles tienen un score similar. La decisión depende del rol y del contexto.")
-
-# =========================================================
-# MOTOR DE PRESIÓN
-# =========================================================
+        st.info("Son perfiles de encaje global parecido. La decisión dependerá del rol, coste, disponibilidad y contexto.")
 
 with tabs[4]:
-    st.header("Motor de presión según rival")
+    st.header("Ficha jugador")
 
-    r1, r2, r3 = st.columns(3)
-    with r1:
-        sistema_rival = st.selectbox("Sistema rival", ["4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-2-1", "5-3-2"])
-        salida_rival = st.selectbox("Estructura de salida rival", list(REGLAS_PRESION.keys()), index=1)
-    with r2:
-        bloque_rival = st.selectbox("Bloque rival", ["Bloque alto", "Bloque medio", "Bloque bajo"], index=1)
-        amenaza = st.selectbox("Amenaza principal", ["Juego directo", "Juego interior", "Banda y centros", "Transición rápida", "Segunda jugada"])
-    with r3:
-        lateral_bajo = st.checkbox("El rival baja un lateral a salida", value=False)
-        rival_dos_puntas = st.checkbox("El rival juega con dos puntas", value=False)
-
-    if lateral_bajo:
-        salida_ajustada = "Lateral bajo en salida"
-    elif sistema_rival.startswith("3"):
-        salida_ajustada = "Salida de 3"
+    fuente = st.radio("Fuente", ["Plantilla propia", "Ojeo", "Todos"], horizontal=True)
+    if fuente == "Plantilla propia":
+        base = jugadores
+    elif fuente == "Ojeo":
+        base = ojeados
     else:
-        salida_ajustada = salida_rival
+        base = todos
 
-    plan = generar_plan_presion(salida_ajustada, sistema_rival, bloque_rival)
-    st.markdown(plan)
-
-    st.subheader("Lectura complementaria")
-    if rival_dos_puntas:
-        st.info("Si el rival juega con dos puntas, gana sentido activar el 3-4-3 para tener superioridad numérica en salida y formar cuadrado interior.")
-    if amenaza == "Banda y centros":
-        st.warning("Prioridad defensiva: defender área, cerrar zona de remate y proteger segundo palo/rechace.")
-    elif amenaza == "Juego interior":
-        st.warning("Prioridad defensiva: cerrar dentro, impedir recepción de pivotes/mediapuntas y forzar fuera.")
-    elif amenaza == "Transición rápida":
-        st.warning("Prioridad defensiva: rest-defence estable, lateral corto preparado y pivote en contención.")
-
-    st.subheader("Base de rivales editable")
-    st.session_state.rivals = st.data_editor(st.session_state.rivals, use_container_width=True, num_rows="dynamic")
-
-# =========================================================
-# XI IDEAL
-# =========================================================
+    if base.empty:
+        st.warning("No hay datos en esta fuente.")
+    else:
+        nombre = st.selectbox("Jugador", base["nombre"].tolist())
+        ficha_jugador(base, nombre)
 
 with tabs[5]:
-    st.header("XI ideal y estructura sobre campo")
+    st.header("Modelo Noname y rankings de encaje")
 
-    x1, x2, x3 = st.columns(3)
-    with x1:
-        formacion = st.selectbox("Estructura", list(FORMACIONES.keys()), index=0)
-    with x2:
-        fuente = st.radio("Fuente", ["Solo propios", "Solo mercado", "Mixto"], horizontal=True)
-    with x3:
-        score_corte = st.slider("Score mínimo para XI", 0.0, 10.0, 0.0, 0.1)
+    st.subheader("Modelo de juego")
+    mcols = st.columns(3)
+    for i, (k, v) in enumerate(MODELO_NONAME.items()):
+        with mcols[i % 3]:
+            st.markdown(f"<div class='card'><b>{k}</b><br>{v}</div>", unsafe_allow_html=True)
 
-    if fuente == "Solo propios":
-        pool = propios.copy()
-    elif fuente == "Solo mercado":
-        pool = mercado.copy()
+    st.subheader("Ranking por métrica")
+    fuente_rank = st.radio("Fuente ranking", ["Propios", "Ojeados", "Todos"], horizontal=True)
+    if fuente_rank == "Propios":
+        base_rank = jugadores
+    elif fuente_rank == "Ojeados":
+        base_rank = ojeados
     else:
-        pool = df.copy()
+        base_rank = todos
 
-    pool = pool[pool["score_modelo"] >= score_corte].copy()
-    xi, banquillo = construir_xi(pool, formacion)
-
-    st.markdown(render_pizarra(xi, modo_visual), unsafe_allow_html=True)
-
-    xi_df = pd.DataFrame(xi)[["slot","nombre","equipo","posicion","rol","score_modelo","vacante"]]
-    st.subheader("XI seleccionado")
-    st.dataframe(xi_df, use_container_width=True, hide_index=True)
-
-    vacantes = xi_df[xi_df["vacante"] == True]
-    if not vacantes.empty:
-        st.error("Vacantes detectadas: " + ", ".join(vacantes["slot"].tolist()))
-    else:
-        st.success("XI completo según fuente y modelo seleccionados.")
-
-    st.subheader("Banquillo recomendado")
-    if not banquillo.empty:
-        st.dataframe(
-            banquillo[["nombre","equipo","posicion","rol","score_modelo","nivel","estado"]],
-            use_container_width=True,
-            hide_index=True
-        )
-
-    st.subheader("Reglas tácticas de la estructura")
-    if formacion == "4-2-3-1 Noname":
-        st.write("- Base 4-2-3-1 que se interpreta como 4-4-2 por rol libre del mediapunta.")
-        st.write("- Laterales asimétricos: uno largo y otro corto/interior para preparar pérdida.")
-        st.write("- Extremos en amplitud; si uno va dentro, el lado contrario debe conservar amplitud.")
-    elif formacion == "4-4-2 real: MP segundo punta":
-        st.write("- Delantero + mediapunta forman la primera línea de presión.")
-        st.write("- El mediapunta puede venir de cara, conectar juego y atacar intervalo después.")
-    else:
-        st.write("- 3-4-3 con carriles altos y cuadrado interior de dos pivotes + dos mediapuntas.")
-        st.write("- Útil ante dos puntas rivales o rivales con tres dentro para igualar/superar mediocampo.")
-
-# =========================================================
-# INFORMES / EXPORTAR
-# =========================================================
+    metric = st.selectbox("Métrica de encaje", [c for c in ENCAJES if c in base_rank.columns], format_func=lambda x: NOMBRES_ENCAJE.get(x, x))
+    rank = base_rank[["nombre", "equipo", "tipo", "posicion_principal", "decision_deportiva", metric, "rol_proxima_temporada"]].sort_values(metric, ascending=False)
+    st.dataframe(rank, use_container_width=True, hide_index=True)
+    st.bar_chart(rank.set_index("nombre")[metric])
 
 with tabs[6]:
-    st.header("Informes y exportación")
+    st.header("Mercado")
 
-    sub1, sub2, sub3 = st.tabs(["Jugador", "Modelo", "CSV"])
+    st.subheader("Necesidades detectadas desde plantilla propia")
+    for n in detectar_necesidades(jugadores):
+        st.write(f"- {n}")
 
-    with sub1:
-        j = st.selectbox("Jugador para informe", df["nombre"].tolist())
-        row = df[df["nombre"] == j].iloc[0]
-        texto = informe_jugador(row)
-        st.text_area("Informe individual", texto, height=360)
-        st.download_button("Descargar informe jugador", texto, file_name=f"informe_{row['nombre'].replace(' ', '_')}.txt", mime="text/plain")
+    st.subheader("Objetivos ojeados que encajan con necesidades")
+    if ojeados.empty:
+        st.warning("No hay lista de ojeo cargada.")
+    else:
+        objetivos = ojeados[ojeados["decision_deportiva"].isin(["Objetivo mercado", "Seguimiento"])].sort_values("encaje_modelo_general", ascending=False)
+        cols = ["nombre", "equipo", "posicion_principal", "decision_deportiva", "encaje_modelo_general", "perfil_competencia_necesario", "conclusion"]
+        cols = [c for c in cols if c in objetivos.columns]
+        st.dataframe(objetivos[cols], use_container_width=True, hide_index=True)
 
-    with sub2:
-        texto_modelo = informe_modelo() + "\n\n" + diagnostico_modelo(pesos)
-        st.text_area("Informe del modelo Noname", texto_modelo, height=420)
-        st.download_button("Descargar informe modelo", texto_modelo, file_name="modelo_juego_noname.txt", mime="text/plain")
+with tabs[7]:
+    st.header("Motor de presión según rival")
 
-    with sub3:
-        ranking = df.sort_values("score_modelo", ascending=False)
-        st.download_button(
-            "Exportar ranking CSV",
-            ranking.to_csv(index=False).encode("utf-8"),
-            file_name=f"ranking_heras_matchlab_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
-        )
-        st.download_button(
-            "Exportar plantilla base CSV",
-            st.session_state.players.to_csv(index=False).encode("utf-8"),
-            file_name="plantilla_base_noname.csv",
-            mime="text/csv"
-        )
-        st.download_button(
-            "Exportar rivales CSV",
-            st.session_state.rivals.to_csv(index=False).encode("utf-8"),
-            file_name="rivales_noname.csv",
-            mime="text/csv"
-        )
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        sistema = st.selectbox("Sistema rival", ["4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-2-1", "5-3-2"])
+    with c2:
+        salida = st.selectbox("Salida rival", list(REGLAS_PRESION.keys()))
+    with c3:
+        amenaza = st.selectbox("Amenaza principal", ["Juego directo", "Juego interior", "Banda y centros", "Transición rápida", "Segunda jugada"])
 
-        st.subheader("Columnas necesarias para CSV de jugadores")
-        st.code(", ".join(["nombre","equipo","tipo","liga","posicion","rol","edad","minutos"] + METRICAS + ["confianza","estado","drivers","observacion"]))
+    regla = REGLAS_PRESION[salida]
+    st.markdown(f"""
+    <div class="card">
+    <h3>Plan de presión recomendado</h3>
+    <b>Sistema rival:</b> {sistema}<br>
+    <b>Estructura:</b> {regla['estructura']}<br><br>
+    <b>Ajuste:</b> {regla['plan']}<br><br>
+    <b>Objetivo:</b> {regla['objetivo']}<br><br>
+    <b>Amenaza principal:</b> {amenaza}
+    </div>
+    """, unsafe_allow_html=True)
+
+    if amenaza == "Banda y centros":
+        st.warning("Prioridad: orientar fuera, pero cerrar zona de remate, segundo palo y rechace.")
+    elif amenaza == "Juego interior":
+        st.warning("Prioridad: cerrar dentro, impedir pivotes/mediapuntas de cara y forzar pase exterior.")
+    elif amenaza == "Transición rápida":
+        st.warning("Prioridad: rest-defence estable, lateral corto preparado y pivote en contención.")
+
+with tabs[8]:
+    st.header("Exportar")
+
+    st.download_button("Descargar plantilla propia CSV", csv_bytes(jugadores), "jugadores_noname_export.csv", "text/csv")
+    st.download_button("Descargar lista de ojeo CSV", csv_bytes(ojeados), "jugadores_ojeados_noname_export.csv", "text/csv")
+    st.download_button("Descargar base unificada CSV", csv_bytes(todos), "jugadores_total_noname_export.csv", "text/csv")
+
+    st.subheader("Archivos esperados en GitHub")
+    st.code("""streamlit_app.py
+requirements.txt
+jugadores_noname.csv
+jugadores_ojeados_noname.csv""")
