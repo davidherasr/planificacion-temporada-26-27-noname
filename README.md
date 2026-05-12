@@ -1,23 +1,13 @@
-# Heras MatchLab | Noname V6
+# Heras MatchLab | Noname V6 FIX
 
-Versión visual con campograma, dashboard remodelado y mercado dependiente de la lista de ojeo.
+Corrección de renderizado:
+- Campograma pintado con components.html.
+- Tarjetas sin HTML visible.
+- Sin evaluaciones partido.
+- Mercado dependiente de jugadores_ojeados_noname.csv.
 
-Archivos necesarios en la raíz del repositorio:
-
+Archivos necesarios en raíz:
 - streamlit_app.py
 - requirements.txt
 - jugadores_noname.csv
 - jugadores_ojeados_noname.csv
-
-Ejecutar en local:
-
-```bash
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
-
-En Streamlit Cloud:
-
-```txt
-Main file path: streamlit_app.py
-```
